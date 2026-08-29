@@ -1,0 +1,24 @@
+services:
+  # The Node.js WebSockets Server
+  backend:
+    build: 
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: wordle-backend
+    ports:
+      - "3001:3001" # Exposes the WebSocket port
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+
+  # The React/Svelte Game UI
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: wordle-frontend
+    ports:
+      - "3000:80" # Maps the web UI to port 8080
+    restart: unless-stopped
+    depends_on:
+      - backend
