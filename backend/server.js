@@ -11,18 +11,18 @@ const io = new Server(server, { cors: { origin: "*", methods: ["GET", "POST"] } 
 
 // --- Load and Parse Wordlists ---
 function loadWordList(fileName) {
-  try {
-    const filePath = path.join(__dirname, fileName);
-    const fileContent = fs.readFileSync(filePath, 'utf-8');
-    // Split by commas, newlines, or carriage returns and clean up entries
-    return fileContent
-      .split(/[\r\n,]+/)
-      .map(word => word.trim().toUpperCase())
-      .filter(word => word.length === 5);
-  } catch (err) {
-    console.error(`Failed to load ${fileName}:`, err.message);
-    return [];
-  }
+    try {
+        const filePath = path.join(__dirname, fileName);
+        const fileContent = fs.readFileSync(filePath, 'utf-8');
+        // Split by commas, newlines, or carriage returns and clean up entries
+        return fileContent
+            .split(/[\r\n,]+/)
+            .map(word => word.trim().toUpperCase())
+            .filter(word => word.length === 5);
+    } catch (err) {
+        console.error(`Failed to load ${fileName}:`, err.message);
+        return [];
+    }
 }
 
 const SOLUTION_WORDS = loadWordList('valid_solutions.csv');
@@ -33,13 +33,13 @@ const VALID_GUESSES = new Set([...SOLUTION_WORDS, ...ACCEPTED_WORDS]);
 console.log(`Loaded ${SOLUTION_WORDS.length} possible solutions and ${VALID_GUESSES.size} total valid guesses.`);
 
 if (SOLUTION_WORDS.length === 0) {
-  SOLUTION_WORDS.push('REACT', 'LINUX', 'BOARD', 'GAMES', 'MATCH', 'STACK', 'PROXY');
-  SOLUTION_WORDS.forEach(w => VALID_GUESSES.add(w));
+    SOLUTION_WORDS.push('REACT', 'LINUX', 'BOARD', 'GAMES', 'MATCH', 'STACK', 'PROXY');
+    SOLUTION_WORDS.forEach(w => VALID_GUESSES.add(w));
 }
 
 const rooms = {};
 function getRandomSolution() {
-  return SOLUTION_WORDS[Math.floor(Math.random() * SOLUTION_WORDS.length)];
+    return SOLUTION_WORDS[Math.floor(Math.random() * SOLUTION_WORDS.length)];
 }
 
 // --- Helper: Grade Guess ---
@@ -77,7 +77,7 @@ io.on('connection', (socket) => {
         } else {
             playerName = `Guest-${socket.id.substring(0, 4)}`;
         }
-        
+
         if (!rooms[roomCode]) {
             rooms[roomCode] = { secretWord: '', gameStarted: false, players: {}, scores: {} };
         }
@@ -134,7 +134,7 @@ io.on('connection', (socket) => {
             socket.emit('guess_error', 'Not in word list');
             return;
         }
-        
+
         player.guessesCount++;
         const gradedColors = gradeGuess(cleanGuess, room.secretWord);
 
@@ -211,11 +211,9 @@ io.on('connection', (socket) => {
 
         // Reset every player's game board and status (but keep the scores intact!)
         for (const playerId in room.players) {
-            room.players[playerId] = {
-                status: 'playing',
-                guessesCount: 0,
-                fullBoard: []
-            };
+            room.players[playerId].status = 'playing';
+            room.players[playerId].guessesCount = 0;
+            room.players[playerId].fullBoard = [];
         }
 
         // Pick a new secret word

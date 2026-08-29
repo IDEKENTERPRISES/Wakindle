@@ -25,6 +25,12 @@ interface OpponentState {
   status: string;
 }
 
+const KEYBOARD_ROWS = [
+  ['Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P'],
+  ['A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L'],
+  ['ENTER', 'Z', 'X', 'C', 'V', 'B', 'N', 'M', '⌫']
+];
+
 function App() {
   const [isConnected, setIsConnected] = useState(socket.connected);
   const [roomInput, setRoomInput] = useState('');
@@ -66,6 +72,7 @@ function App() {
       setMyGuesses([]);
       setOpponents({});
       setPlayerStatus('playing');
+      setRevealedWord(null);
       setGameStarted(true);
     });
 
@@ -179,6 +186,41 @@ function App() {
     }
   };
 
+  // Computes the color state for the virtual keyboard
+  const getLetterStatuses = () => {
+    const statuses: Record<string, string> = {};
+    myGuesses.forEach(guessData => {
+      guessData.guess.split('').forEach((letter, i) => {
+        const color = guessData.colors[i];
+        const existing = statuses[letter];
+        
+        // Priority: Green > Yellow > Gray
+        if (color === 'green') {
+          statuses[letter] = 'green';
+        } else if (color === 'yellow' && existing !== 'green') {
+          statuses[letter] = 'yellow';
+        } else if (color === 'gray' && existing !== 'green' && existing !== 'yellow') {
+          statuses[letter] = 'gray';
+        }
+      });
+    });
+    return statuses;
+  };
+
+  const handleVirtualKey = (key: string) => {
+    if (playerStatus !== 'playing') return;
+    
+    if (key === 'ENTER') {
+      if (currentGuess.length === 5) {
+        socket.emit('submit_guess', { roomCode: currentRoom, guess: currentGuess });
+      }
+    } else if (key === '⌫') {
+      setCurrentGuess(prev => prev.slice(0, -1));
+    } else if (currentGuess.length < 5) {
+      setCurrentGuess(prev => prev + key);
+    }
+  };
+
   const renderSquare = (letter: string, color: string, key: string, size = 50) => {
     const bgColor = color === 'green' ? '#538d4e' : color === 'yellow' ? '#b59f3b' : color === 'gray' ? '#3a3a3c' : '#ffffff';
     const textColor = color === 'white' ? '#000000' : '#ffffff';
@@ -275,17 +317,61 @@ function App() {
 
             {/* Conditionally render input OR status message */}
             {playerStatus === 'playing' ? (
-              <form onSubmit={handleGuessSubmit}>
-                <input
-                  type="text" value={currentGuess}
-                  onChange={(e) => setCurrentGuess(e.target.value.toUpperCase().replace(/[^A-Z]/g, ''))}
-                  maxLength={5} placeholder="Type word..." autoFocus
-                  style={{ padding: '10px', fontSize: '18px', width: '200px', textAlign: 'center', letterSpacing: '2px' }}
-                />
-                <button type="submit" disabled={currentGuess.length !== 5} style={{ padding: '10px', fontSize: '16px', marginLeft: '10px' }}>
-                  Submit
-                </button>
-              </form>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: '100%', maxWidth: '500px' }}>
+                
+                {/* Keep physical input working for desktop users */}
+                <form onSubmit={handleGuessSubmit} style={{ marginBottom: '20px' }}>
+                  <input
+                    type="text" value={currentGuess}
+                    onChange={(e) => setCurrentGuess(e.target.value.toUpperCase().replace(/[^A-Z]/g, ''))}
+                    maxLength={5} placeholder="Type word..." autoFocus
+                    style={{ padding: '10px', fontSize: '18px', width: '200px', textAlign: 'center', letterSpacing: '2px' }}
+                  />
+                  <button type="submit" disabled={currentGuess.length !== 5} style={{ padding: '10px', fontSize: '16px', marginLeft: '10px' }}>
+                    Submit
+                  </button>
+                </form>
+
+                {/* Virtual Keyboard */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%' }}>
+                  {KEYBOARD_ROWS.map((row, rowIndex) => (
+                    <div key={`kbd-row-${rowIndex}`} style={{ display: 'flex', justifyContent: 'center', gap: '6px' }}>
+                      {row.map(key => {
+                        const statuses = getLetterStatuses();
+                        const status = statuses[key];
+                        
+                        // Determine key colors
+                        const bgColor = status === 'green' ? '#538d4e' : status === 'yellow' ? '#b59f3b' : status === 'gray' ? '#3a3a3c' : '#d3d6da';
+                        const textColor = status ? '#ffffff' : '#000000';
+                        const isAction = key === 'ENTER' || key === '⌫';
+                        
+                        return (
+                          <button
+                            key={key}
+                            onClick={() => handleVirtualKey(key)}
+                            style={{
+                              padding: isAction ? '12px 10px' : '12px 0',
+                              width: isAction ? '65px' : '40px',
+                              border: 'none',
+                              borderRadius: '4px',
+                              backgroundColor: bgColor,
+                              color: textColor,
+                              fontSize: '14px',
+                              fontWeight: 'bold',
+                              cursor: 'pointer',
+                              userSelect: 'none',
+                              touchAction: 'manipulation' // Prevents double-tap zooming on mobile
+                            }}
+                          >
+                            {key}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ))}
+                </div>
+
+              </div>
             ) : (
               <div style={{ padding: '15px', backgroundColor: playerStatus === 'won' ? '#e6ffe6' : '#ffe6e6', border: `2px solid ${playerStatus === 'won' ? 'green' : 'red'}` }}>
                 <h3 style={{ margin: 0, color: playerStatus === 'won' ? 'green' : 'red' }}>
