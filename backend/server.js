@@ -1,26 +1,46 @@
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
+const fs = require('fs');
+const path = require('path');
 
 const app = express();
 const server = http.createServer(app);
 
 const io = new Server(server, { cors: { origin: "*", methods: ["GET", "POST"] } });
 
-const VALID_WORDS = ["REACT", "LINUX", "BOARD", "GAMES", "MATCH", "STACK", "PROXY"];
+// --- Load and Parse Wordlists ---
+function loadWordList(fileName) {
+  try {
+    const filePath = path.join(__dirname, fileName);
+    const fileContent = fs.readFileSync(filePath, 'utf-8');
+    // Split by commas, newlines, or carriage returns and clean up entries
+    return fileContent
+      .split(/[\r\n,]+/)
+      .map(word => word.trim().toUpperCase())
+      .filter(word => word.length === 5);
+  } catch (err) {
+    console.error(`Failed to load ${fileName}:`, err.message);
+    return [];
+  }
+}
 
-// --- State Store ---
-// Structure: { 
-//   CODE: { 
-//     secretWord: 'GAMES',
-//     gameStarted: true,
-//     players: {
-//       'sockId1': { status: 'playing', guessesCount: 0, fullBoard: [] }, // board stores full guess/color arrays
-//       'sockId2': { status: 'won',     guessesCount: 3, fullBoard: [...] },
-//     } 
-//   } 
-// }
+const SOLUTION_WORDS = loadWordList('valid_solutions.csv');
+const ACCEPTED_WORDS = loadWordList('valid_guesses.csv');
+
+const VALID_GUESSES = new Set([...SOLUTION_WORDS, ...ACCEPTED_WORDS]);
+
+console.log(`Loaded ${SOLUTION_WORDS.length} possible solutions and ${VALID_GUESSES.size} total valid guesses.`);
+
+if (SOLUTION_WORDS.length === 0) {
+  SOLUTION_WORDS.push('REACT', 'LINUX', 'BOARD', 'GAMES', 'MATCH', 'STACK', 'PROXY');
+  SOLUTION_WORDS.forEach(w => VALID_GUESSES.add(w));
+}
+
 const rooms = {};
+function getRandomSolution() {
+  return SOLUTION_WORDS[Math.floor(Math.random() * SOLUTION_WORDS.length)];
+}
 
 // --- Helper: Grade Guess ---
 function gradeGuess(guess, secretWord) {
@@ -88,7 +108,7 @@ io.on('connection', (socket) => {
 
         // Handle Game Start (3 players)
         if (Object.keys(room.players).length === 3) {
-            room.secretWord = VALID_WORDS[Math.floor(Math.random() * VALID_WORDS.length)];
+            room.secretWord = getRandomSolution();
             room.gameStarted = true;
             console.log(`[${roomCode}] Started. Secret: ${room.secretWord}`);
 
@@ -107,15 +127,23 @@ io.on('connection', (socket) => {
 
         if (player.status !== 'playing' || player.guessesCount >= 6) return;
 
+        const cleanGuess = guess ? guess.trim().toUpperCase() : '';
+
+        // Reject words not in either CSV list
+        if (cleanGuess.length !== 5 || !VALID_GUESSES.has(cleanGuess)) {
+            socket.emit('guess_error', 'Not in word list');
+            return;
+        }
+        
         player.guessesCount++;
-        const gradedColors = gradeGuess(guess.toUpperCase(), room.secretWord);
+        const gradedColors = gradeGuess(cleanGuess, room.secretWord);
 
         // Save the guess AND the colors to the player's full board history
-        const guessData = { guess: guess.toUpperCase(), colors: gradedColors };
+        const guessData = { guess: cleanGuess, colors: gradedColors };
         player.fullBoard.push(guessData);
 
         socket.emit('guess_result', {
-            guess: guess.toUpperCase(),
+            guess: cleanGuess,
             colors: gradedColors,
             guessesCount: player.guessesCount
         });
@@ -147,7 +175,7 @@ io.on('connection', (socket) => {
                 guessesCount: player.guessesCount,
                 status: player.status,
                 didWin: isCorrect,
-                guess: canSeeLetters ? guess.toUpperCase() : null // The secure filter
+                guess: canSeeLetters ? cleanGuess : null // The secure filter
             });
         }
 
@@ -191,7 +219,7 @@ io.on('connection', (socket) => {
         }
 
         // Pick a new secret word
-        room.secretWord = VALID_WORDS[Math.floor(Math.random() * VALID_WORDS.length)];
+        room.secretWord = getRandomSolution();
         room.gameStarted = true;
         console.log(`[${roomCode}] Next round started. New Secret: ${room.secretWord}`);
 

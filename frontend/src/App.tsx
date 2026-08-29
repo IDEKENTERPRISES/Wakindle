@@ -70,6 +70,12 @@ function App() {
     });
 
     socket.on('room_error', (message: string) => setError(message));
+    
+    socket.on('guess_error', (message: string) => {
+      setError(message);
+      // Auto-clear the error message after 2.5 seconds
+      setTimeout(() => setError(null), 2500);
+    });
 
     // Handle Local Guess Result
     socket.on('guess_result', (data: GuessData) => {
@@ -129,6 +135,7 @@ function App() {
       socket.off('room_updated');
       socket.off('game_start');
       socket.off('room_error');
+      socket.off('guess_error');
       socket.off('guess_result');
       socket.off('opponent_update');
       socket.off('match_over');
