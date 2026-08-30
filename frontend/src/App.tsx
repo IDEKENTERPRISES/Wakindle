@@ -50,6 +50,7 @@ function App() {
   const [scores, setScores] = useState<Record<string, number>>({});
   const [revealedWord, setRevealedWord] = useState<string | null>(null);
   const [sessionId] = useState(getSessionId());
+  const [isRestoring, setIsRestoring] = useState<boolean>(() => !!sessionStorage.getItem('wakindle_room'));
 
   // Local Player State
   const [currentGuess, setCurrentGuess] = useState('');
@@ -100,12 +101,18 @@ function App() {
         setOpponents(data.opponents);
       }
       setRevealedWord(data.secretWord || null);
+      
+      // Clear the loading state
+      setIsRestoring(false);
     });
 
     socket.on('room_updated', (data: { roomCode: string, players: { id: string, name: string }[] }) => {
       setCurrentRoom(data.roomCode);
       setPlayers(data.players);
       setError(null);
+      
+      // Clear the loading state
+      setIsRestoring(false);
     });
 
     socket.on('game_start', (data: { players: { id: string, name: string }[] }) => {
@@ -120,7 +127,12 @@ function App() {
       setGameStarted(true);
     });
 
-    socket.on('room_error', (message: string) => setError(message));
+    socket.on('room_error', (message: string) => {
+      setError(message);
+      // Clear the loading state and remove the bad room so they don't get stuck in a loop
+      setIsRestoring(false);
+      sessionStorage.removeItem('wakindle_room');
+    });
     
     socket.on('guess_error', (message: string) => {
       setError(message);
@@ -180,7 +192,12 @@ function App() {
       setScores(data.scores);
     });
 
+    const fallbackTimeout = setTimeout(() => {
+      if (isRestoring) setIsRestoring(false);
+    }, 3000);
+
     return () => {
+      clearTimeout(fallbackTimeout);
       socket.off('connect');
       socket.off('disconnect');
       socket.off('room_updated');
@@ -301,35 +318,44 @@ function App() {
 
       {error && <p style={{ color: 'red', fontWeight: 'bold' }}>{error}</p>}
 
-      {!currentRoom && (
+      {isRestoring ? (
         <div style={{ marginTop: '30px' }}>
-          <input
-            type="text" placeholder="YOUR NAME" value={nameInput}
-            onChange={(e) => setNameInput(e.target.value)}
-            maxLength={10}
-            style={{ padding: '10px', fontSize: '16px', marginRight: '10px' }}
-          />
-          <button 
-            onClick={() => {
-              const nameToSave = nameInput || "Guest-" + (socket.id?.substring(0, 4) || sessionId.substring(0, 4));
-              setMyName(nameToSave);
-              sessionStorage.setItem('wakindle_name', nameToSave);
-            }} 
-            style={{ padding: '10px 20px', fontSize: '16px' }}
-          >
-            Set Name
-          </button>
+          <h3>Reconnecting to room...</h3>
         </div>
-      )}
-      {!currentRoom && (
-        <div style={{ marginTop: '30px' }}>
-          <input
-            type="text" placeholder="ROOM CODE" value={roomInput}
-            onChange={(e) => setRoomInput(e.target.value.toUpperCase())} maxLength={6}
-            style={{ padding: '10px', fontSize: '16px', marginRight: '10px', textTransform: 'uppercase' }}
-          />
-          <button onClick={handleJoinRoom} style={{ padding: '10px 20px', fontSize: '16px' }}>Join</button>
-        </div>
+      ) : (
+        <>
+          {/* Only show these if we are NOT currently restoring a session */}
+          {!currentRoom && (
+            <div style={{ marginTop: '30px' }}>
+              <input
+                type="text" placeholder="YOUR NAME" value={nameInput}
+                onChange={(e) => setNameInput(e.target.value)}
+                maxLength={10}
+                style={{ padding: '10px', fontSize: '16px', marginRight: '10px' }}
+              />
+              <button 
+                onClick={() => {
+                  const nameToSave = nameInput || "Guest-" + (socket.id?.substring(0, 4) || sessionId.substring(0, 4));
+                  setMyName(nameToSave);
+                  sessionStorage.setItem('wakindle_name', nameToSave);
+                }} 
+                style={{ padding: '10px 20px', fontSize: '16px' }}
+              >
+                Set Name
+              </button>
+            </div>
+          )}
+          {!currentRoom && (
+            <div style={{ marginTop: '30px' }}>
+              <input
+                type="text" placeholder="ROOM CODE" value={roomInput}
+                onChange={(e) => setRoomInput(e.target.value.toUpperCase())} maxLength={6}
+                style={{ padding: '10px', fontSize: '16px', marginRight: '10px', textTransform: 'uppercase' }}
+              />
+              <button onClick={handleJoinRoom} style={{ padding: '10px 20px', fontSize: '16px' }}>Join</button>
+            </div>
+          )}
+        </>
       )}
 
       {currentRoom && !gameStarted && (
