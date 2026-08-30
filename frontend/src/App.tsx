@@ -31,6 +31,15 @@ const KEYBOARD_ROWS = [
   ['ENTER', 'Z', 'X', 'C', 'V', 'B', 'N', 'M', '⌫']
 ];
 
+const getSessionId = () => {
+  let sid = sessionStorage.getItem('wakindle_sid');
+  if (!sid) {
+    sid = Math.random().toString(36).substring(2, 15);
+    sessionStorage.setItem('wakindle_sid', sid);
+  }
+  return sid;
+};
+
 function App() {
   const [isConnected, setIsConnected] = useState(socket.connected);
   const [roomInput, setRoomInput] = useState('');
@@ -40,6 +49,7 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   const [scores, setScores] = useState<Record<string, number>>({});
   const [revealedWord, setRevealedWord] = useState<string | null>(null);
+  const [sessionId] = useState(getSessionId());
 
   // Local Player State
   const [currentGuess, setCurrentGuess] = useState('');
@@ -56,6 +66,20 @@ function App() {
     socket.on('disconnect', () => {
       setIsConnected(false);
       resetGameState();
+    });
+
+    socket.on('restore_state', (data: any) => {
+      setCurrentRoom(data.roomCode);
+      setPlayers(data.players);
+      setScores(data.scores);
+      
+      if (data.gameStarted) {
+        setGameStarted(true);
+        setMyGuesses(data.myState.fullBoard);
+        setPlayerStatus(data.myState.status);
+        setRevealedWord(data.secretWord);
+        setOpponents(data.opponents);
+      }
     });
 
     socket.on('room_updated', (data: { roomCode: string, players: { id: string, name: string }[] }) => {
@@ -146,7 +170,8 @@ function App() {
       socket.off('guess_result');
       socket.off('opponent_update');
       socket.off('match_over');
-      socket.off('reveal_boards')
+      socket.off('reveal_boards');
+      socket.off('restore_state');
     };
 
   }, []);
@@ -169,9 +194,10 @@ function App() {
     }
 
     if (roomInput.trim()) {
-      socket.emit('join_room', roomInput, myName);
+      socket.emit('join_room', roomInput, nameToUse, sessionId);
     }
   };
+  
 
   const handleGuessSubmit = (e: React.FormEvent) => {
     e.preventDefault();

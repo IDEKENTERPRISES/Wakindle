@@ -38,6 +38,7 @@ if (SOLUTION_WORDS.length === 0) {
 }
 
 const rooms = {};
+const socketMap = {};
 function getRandomSolution() {
     return SOLUTION_WORDS[Math.floor(Math.random() * SOLUTION_WORDS.length)];
 }
@@ -66,29 +67,63 @@ function gradeGuess(guess, secretWord) {
 
 // --- WebSocket Logic ---
 io.on('connection', (socket) => {
-    console.log(`Guest-${socket.id.substring(0, 4)} connected`);
+    console.log(`Socket ${socket.id.substring(0, 4)} connected`);
 
     // 1. Join/Create Room
-    socket.on('join_room', (roomCode, playerName) => {
+    socket.on('join_room', (roomCode, playerName, sessionId) => {
         roomCode = roomCode.toUpperCase();
         playerName = playerName ? playerName.trim() : '';
         if (playerName && playerName.length > 1 && playerName.length < 11) {
             playerName = playerName.substring(0, 10);
         } else {
-            playerName = `Guest-${socket.id.substring(0, 4)}`;
+            playerName = `Guest-${sessionId.substring(0, 4)}`;
         }
-
+        
         if (!rooms[roomCode]) {
             rooms[roomCode] = { secretWord: '', gameStarted: false, players: {}, scores: {} };
         }
         const room = rooms[roomCode];
-        const playerIds = Object.keys(room.players);
 
-        if (room.scores[socket.id] === undefined) {
-            room.scores[socket.id] = 0;
+        // Link this temporary socket to the permanent session
+        socketMap[socket.id] = { roomCode, sessionId };
+        socket.join(roomCode);
+
+        // RECONNECTION LOGIC
+        if (room.players[sessionId]) {
+            console.log(`[${roomCode}] ${playerName} reconnected.`);
+            room.players[sessionId].name = playerName; // Update name just in case
+            
+            // Calculate what opponent data this player is allowed to see right now
+            const secureOpponents = {};
+            if (room.gameStarted) {
+                const isFinished = room.players[sessionId].status !== 'playing';
+                for (const oppId in room.players) {
+                    if (oppId === sessionId) continue;
+                    secureOpponents[oppId] = {
+                        status: room.players[oppId].status,
+                        guessesCount: room.players[oppId].guessesCount,
+                        board: room.players[oppId].fullBoard.map(guessData => ({
+                            colors: guessData.colors,
+                            guess: (isFinished || room.players[oppId].status !== 'playing') ? guessData.guess : null
+                        }))
+                    };
+                }
+            }
+
+            socket.emit('restore_state', {
+                roomCode,
+                players: Object.keys(room.players).map(id => ({ id, name: room.players[id].name })),
+                gameStarted: room.gameStarted,
+                myState: room.players[sessionId],
+                scores: room.scores,
+                secretWord: (room.gameStarted && room.players[sessionId].status !== 'playing') ? room.secretWord : null,
+                opponents: secureOpponents
+            });
+            return;
         }
 
-        if (playerIds.length >= 3) {
+        // NEW PLAYER LOGIC
+        if (Object.keys(room.players).length >= 3) {
             socket.emit('room_error', 'This room is already full!');
             return;
         }
@@ -97,39 +132,35 @@ io.on('connection', (socket) => {
             return;
         }
 
-        // Assign to room, initializing player object
-        socket.join(roomCode);
-        room.players[socket.id] = { status: 'playing', guessesCount: 0, fullBoard: [], name: playerName };
+        room.players[sessionId] = { status: 'playing', guessesCount: 0, fullBoard: [], name: playerName };
+        if (room.scores[sessionId] === undefined) room.scores[sessionId] = 0;
 
-        console.log(`${playerName} joined ${roomCode}. (${Object.keys(room.players).length}/3)`);
+        io.to(roomCode).emit('room_updated', { 
+            roomCode, 
+            players: Object.keys(room.players).map(id => ({ id, name: room.players[id].name })) 
+        });
 
-        // Broadcast updated player LIST (for lobby display)
-        io.to(roomCode).emit('room_updated', { roomCode, players: Object.keys(room.players).map(id => ({ id, name: room.players[id].name })) });
-
-        // Handle Game Start (3 players)
         if (Object.keys(room.players).length === 3) {
             room.secretWord = getRandomSolution();
             room.gameStarted = true;
             console.log(`[${roomCode}] Started. Secret: ${room.secretWord}`);
-
-            // Send player IDs and names to all players in the room
             io.to(roomCode).emit('game_start', { players: Object.keys(room.players).map(id => ({ id, name: room.players[id].name })) });
         }
     });
 
     // 2. Handle Guesses and End-of-Round
     socket.on('submit_guess', (data) => {
-        const { roomCode, guess } = data;
+        // Look up the session ID based on the socket that sent the request
+        const { roomCode, sessionId } = socketMap[socket.id] || {};
+        if (!roomCode || !sessionId) return;
+        
         const room = rooms[roomCode];
-
-        if (!room || !room.gameStarted || !room.players[socket.id]) return;
-        const player = room.players[socket.id];
+        if (!room || !room.gameStarted || !room.players[sessionId]) return;
+        const player = room.players[sessionId];
 
         if (player.status !== 'playing' || player.guessesCount >= 6) return;
 
-        const cleanGuess = guess ? guess.trim().toUpperCase() : '';
-
-        // Reject words not in either CSV list
+        const cleanGuess = data.guess ? data.guess.trim().toUpperCase() : '';
         if (cleanGuess.length !== 5 || !VALID_GUESSES.has(cleanGuess)) {
             socket.emit('guess_error', 'Not in word list');
             return;
@@ -137,117 +168,83 @@ io.on('connection', (socket) => {
 
         player.guessesCount++;
         const gradedColors = gradeGuess(cleanGuess, room.secretWord);
+        player.fullBoard.push({ guess: cleanGuess, colors: gradedColors });
 
-        // Save the guess AND the colors to the player's full board history
-        const guessData = { guess: cleanGuess, colors: gradedColors };
-        player.fullBoard.push(guessData);
-
-        socket.emit('guess_result', {
-            guess: cleanGuess,
-            colors: gradedColors,
-            guessesCount: player.guessesCount
-        });
+        socket.emit('guess_result', { guess: cleanGuess, colors: gradedColors, guessesCount: player.guessesCount });
 
         let newStatus = player.status;
         const isCorrect = gradedColors.every(c => c === 'green');
-
+        
         if (isCorrect) {
             newStatus = 'won';
-            room.scores[socket.id] += (7 - player.guessesCount);
+            room.scores[sessionId] += (7 - player.guessesCount); 
         } else if (player.guessesCount >= 6) {
             newStatus = 'lost';
         }
-
         player.status = newStatus;
 
-        // TARGETED BROADCAST: Send data to other players based on THEIR status
-        for (const otherSocketId in room.players) {
-            if (otherSocketId === socket.id) continue; // Don't send to self
+        // TARGETED BROADCAST
+        for (const oppSessionId in room.players) {
+            if (oppSessionId === sessionId) continue; 
+            
+            // We must broadcast to the specific socket attached to this session
+            // Find the socket ID that matches the opponent's session ID
+            const oppSocketId = Object.keys(socketMap).find(key => socketMap[key].sessionId === oppSessionId);
+            if (!oppSocketId) continue;
 
-            const otherPlayer = room.players[otherSocketId];
+            const canSeeLetters = room.players[oppSessionId].status !== 'playing';
 
-            // If the receiving player has finished, they are allowed to see the letters
-            const canSeeLetters = otherPlayer.status !== 'playing';
-
-            io.to(otherSocketId).emit('opponent_update', {
-                playerId: socket.id,
+            io.to(oppSocketId).emit('opponent_update', { 
+                playerId: sessionId, 
                 colors: gradedColors,
                 guessesCount: player.guessesCount,
                 status: player.status,
                 didWin: isCorrect,
-                guess: canSeeLetters ? cleanGuess : null // The secure filter
+                guess: canSeeLetters ? cleanGuess : null 
             });
         }
 
-        // REVEAL HISTORY: If THIS player just finished, reveal all opponent history to them
         if (newStatus !== 'playing') {
             const allOpponentsBoards = {};
-            for (const otherSocketId in room.players) {
-                if (otherSocketId === socket.id) continue;
-                allOpponentsBoards[otherSocketId] = room.players[otherSocketId].fullBoard;
+            for (const oppSessionId in room.players) {
+                if (oppSessionId === sessionId) continue;
+                allOpponentsBoards[oppSessionId] = room.players[oppSessionId].fullBoard;
             }
             socket.emit('reveal_boards', allOpponentsBoards);
         }
 
         const allFinished = Object.values(room.players).every(p => p.status !== 'playing');
-
         if (allFinished) {
             console.log(`[${roomCode}] Round over. Word was: ${room.secretWord}`);
-            room.gameStarted = false;
-
-            io.to(roomCode).emit('match_over', {
-                secretWord: room.secretWord,
-                scores: room.scores
-            });
+            room.gameStarted = false; 
+            io.to(roomCode).emit('match_over', { secretWord: room.secretWord, scores: room.scores });
         }
     });
 
     // 3. Handle Next Round
     socket.on('next_round', (roomCode) => {
         const room = rooms[roomCode];
-
-        // Prevent triggering if room doesn't exist or game is already actively running
         if (!room || room.gameStarted) return;
 
-        // Reset every player's game board and status (but keep the scores intact!)
         for (const playerId in room.players) {
             room.players[playerId].status = 'playing';
             room.players[playerId].guessesCount = 0;
             room.players[playerId].fullBoard = [];
         }
 
-        // Pick a new secret word
         room.secretWord = getRandomSolution();
         room.gameStarted = true;
         console.log(`[${roomCode}] Next round started. New Secret: ${room.secretWord}`);
-
-        // Tell everyone in the room to reset their UI and start the new round
         io.to(roomCode).emit('game_start', { players: Object.keys(room.players).map(id => ({ id, name: room.players[id].name })) });
     });
 
     // 4. Disconnect/Cleanup
     socket.on('disconnect', () => {
-        console.log(`Socket ${socket.id.substring(0, 4)} disconnected`);
-
-        for (const roomCode in rooms) {
-            const room = rooms[roomCode];
-
-            if (room.players[socket.id]) {
-                // Grab the name BEFORE deleting the player
-                const playerName = room.players[socket.id].name;
-                delete room.players[socket.id];
-
-                // Inform remaining players
-                io.to(roomCode).emit('room_updated', {
-                    roomCode,
-                    players: Object.keys(room.players).map(id => ({ id, name: room.players[id].name })),
-                    disconnectedPlayerId: socket.id,
-                });
-
-                console.log(`${playerName} removed from ${roomCode}. Remaining: ${Object.keys(room.players).length}`);
-                if (Object.keys(room.players).length === 0) delete rooms[roomCode];
-                break;
-            }
+        const { roomCode, sessionId } = socketMap[socket.id] || {};
+        delete socketMap[socket.id]; // Remove the mapping to prevent memory leaks
+        
+        if (roomCode && rooms[roomCode]) {
+            console.log(`[${roomCode}] Session ${sessionId?.substring(0,4)} disconnected. Preserving state.`);
         }
     });
 });
