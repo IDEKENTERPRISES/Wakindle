@@ -165,6 +165,9 @@ function App() {
   // Opponents State (Now tracks the board, guess count, and status)
   const [opponents, setOpponents] = useState<Record<string, OpponentState>>({});
 
+  // UI State
+  const [isShaking, setIsShaking] = useState(false);
+
   useEffect(() => {
     // Helper function to handle auto-joining
     const tryAutoJoin = () => {
@@ -248,8 +251,12 @@ function App() {
 
     socket.on('guess_error', (message: string) => {
       setError(message);
-      // Auto-clear the error message after 2.5 seconds
-      setTimeout(() => setError(null), 2500);
+      setIsShaking(true);
+      // Auto-clear the shake and error message after 600ms
+      setTimeout(() => {
+        setIsShaking(false);
+        setError(null);
+      }, 600);
     });
 
     // Handle Local Guess Result
@@ -406,19 +413,41 @@ const handleLeaveRoom = () => {
     }
   };
 
-  const renderSquare = (letter: string, color: string, key: string, size = 50) => {
+  const renderSquare = (letter: string, color: string, key: string, size = 50, animationType: 'none' | 'pop' | 'flip' = 'none', delay = 0) => {
     const bgColor = color === 'green' ? '#538d4e' : color === 'yellow' ? '#b59f3b' : color === 'gray' ? '#3a3a3c' : '#ffffff';
     const textColor = color === 'white' ? '#000000' : '#ffffff';
-    const border = color === 'white' ? '2px solid #d3d6da' : '2px solid transparent';
+    
+    // Wordle makes the border darker when a letter is typed
+    const border = color === 'white' && !letter ? '2px solid #d3d6da' : color === 'white' ? '2px solid #878a8c' : '2px solid transparent';
     const fontSize = size >= 50 ? '24px' : '16px';
+
+    let animation = 'none';
+    let currentBg = bgColor;
+    let currentText = textColor;
+    let currentBorder = border;
+
+    if (animationType === 'pop' && letter) {
+      animation = 'pop 0.15s ease-in-out';
+    } else if (animationType === 'flip') {
+      animation = `flipReveal 0.6s ease-in forwards`;
+      // Start the tile as a filled-in white square before the flip
+      currentBg = '#ffffff'; 
+      currentText = '#000000';
+      currentBorder = '2px solid #878a8c';
+    }
 
     return (
       <div
         key={key}
         style={{
-          width: `${size}px`, height: `${size}px`, backgroundColor: bgColor, color: textColor,
+          width: `${size}px`, height: `${size}px`,
+          backgroundColor: currentBg, color: currentText, border: currentBorder,
           display: 'flex', justifyContent: 'center', alignItems: 'center',
-          fontSize: fontSize, fontWeight: 'bold', border: border, textTransform: 'uppercase'
+          fontSize: fontSize, fontWeight: 'bold', textTransform: 'uppercase',
+          animation: animation,
+          animationDelay: animationType === 'flip' ? `${delay}s` : '0s',
+          // Pass the target colors to the CSS keyframe via variables
+          ...(animationType === 'flip' ? { '--final-bg': bgColor, '--final-border': bgColor === '#ffffff' ? '#878a8c' : bgColor } as React.CSSProperties : {})
         }}
       >
         {letter}
@@ -429,6 +458,29 @@ const handleLeaveRoom = () => {
   return (
     <div style={{ fontFamily: 'sans-serif', textAlign: 'center', marginTop: '30px' }}>
       <MatrixBackground />
+
+      <style>
+        {`
+          @keyframes shake {
+            10%, 90% { transform: translateX(-1px); }
+            20%, 80% { transform: translateX(2px); }
+            30%, 50%, 70% { transform: translateX(-4px); }
+            40%, 60% { transform: translateX(4px); }
+          }
+          @keyframes pop {
+            0% { transform: scale(0.8); }
+            40% { transform: scale(1.1); }
+            100% { transform: scale(1); }
+          }
+          @keyframes flipReveal {
+            0% { transform: rotateX(0deg); background-color: #ffffff; border-color: #878a8c; color: #000000; }
+            49% { transform: rotateX(90deg); background-color: #ffffff; border-color: #878a8c; color: #000000; }
+            51% { transform: rotateX(90deg); background-color: var(--final-bg); border-color: var(--final-border); color: #ffffff; }
+            100% { transform: rotateX(0deg); background-color: var(--final-bg); border-color: var(--final-border); color: #ffffff; }
+          }
+        `}
+      </style>
+
       <h1>Wakindle</h1>
       <p style={{ fontSize: '12px', color: 'gray' }}>
         Server: {isConnected ? '🟢' : '🔴'} | ID: {socket.id}
@@ -517,28 +569,47 @@ const handleLeaveRoom = () => {
       {gameStarted && (
         <div style={{ display: 'flex', flexDirection: 'row', justifyContent: 'center', alignItems: 'flex-start', gap: '80px', marginTop: '20px', flexWrap: 'wrap' }}>
 
-          {/* Main Player Board (Left Side) */}
+          {/* Main Player Board*/}
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
             <h2>Your Board (Score: {scores[sessionId] || 0})</h2>
             <div style={{ display: 'grid', gridTemplateRows: 'repeat(6, 1fr)', gap: '5px', marginBottom: '20px' }}>
               {Array.from({ length: 6 }).map((_, rowIndex) => {
                 const isCurrentRow = rowIndex === myGuesses.length && playerStatus === 'playing';
                 const isPastRow = rowIndex < myGuesses.length;
+                const isLatestGuess = rowIndex === myGuesses.length - 1;
 
                 return (
-                  <div key={`my-row-${rowIndex}`} style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '5px' }}>
+                  <div 
+                    key={`my-row-${rowIndex}`} 
+                    style={{ 
+                      display: 'grid', 
+                      gridTemplateColumns: 'repeat(5, 1fr)', 
+                      gap: '5px',
+                      animation: (isCurrentRow && isShaking) ? 'shake 0.5s' : 'none'
+                    }}
+                  >
                     {Array.from({ length: 5 }).map((_, colIndex) => {
                       let letter = '';
                       let color = 'white';
+                      let animType: 'none' | 'pop' | 'flip' = 'none';
+                      let delay = 0;
 
                       if (isPastRow) {
                         letter = myGuesses[rowIndex].guess[colIndex];
                         color = myGuesses[rowIndex].colors[colIndex];
+                        if (isLatestGuess) {
+                          animType = 'flip';
+                          delay = colIndex * 0.15; // Stagger by 0.15s per letter
+                        }
                       } else if (isCurrentRow) {
                         letter = currentGuess[colIndex] || '';
+                        if (letter) animType = 'pop';
                       }
 
-                      return renderSquare(letter, color, `my-${rowIndex}-${colIndex}`);
+                      // Appending letter to key on current row forces re-mount for the pop animation
+                      const squareKey = (isCurrentRow && letter) ? `my-${rowIndex}-${colIndex}-${letter}` : `my-${rowIndex}-${colIndex}`;
+
+                      return renderSquare(letter, color, squareKey, 50, animType, delay);
                     })}
                   </div>
                 );
