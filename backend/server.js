@@ -97,6 +97,9 @@ io.on('connection', (socket) => {
             console.log(`[${roomCode}] ${playerName} reconnected.`);
             room.players[sessionId].name = playerName; 
             
+            room.players[sessionId].connected = true;
+            socket.to(roomCode).emit('player_connection_updated', { sessionId, connected: true });
+
             const secureOpponents = {};
             if (room.gameStarted || room.secretWord) {
                 const isFinished = room.players[sessionId].status !== 'playing';
@@ -115,7 +118,7 @@ io.on('connection', (socket) => {
 
             socket.emit('restore_state', {
                 roomCode,
-                players: Object.keys(room.players).map(id => ({ id, name: room.players[id].name })),
+                players: Object.keys(room.players).map(id => ({ id, name: room.players[id].name, connected: room.players[id].connected })),
                 gameStarted: room.gameStarted,
                 myState: room.players[sessionId],
                 scores: room.scores,
@@ -136,12 +139,13 @@ io.on('connection', (socket) => {
             return;
         }
 
-        room.players[sessionId] = { status: 'playing', guessesCount: 0, fullBoard: [], name: playerName };
+        room.players[sessionId] = { status: 'playing', guessesCount: 0, fullBoard: [], name: playerName, connected: true };
+
         if (room.scores[sessionId] === undefined) room.scores[sessionId] = 0;
 
         io.to(roomCode).emit('room_updated', { 
             roomCode, 
-            players: Object.keys(room.players).map(id => ({ id, name: room.players[id].name })),
+            players: Object.keys(room.players).map(id => ({ id, name: room.players[id].name, connected: room.players[id].connected })),
             maxPlayers: room.maxPlayers
         });
 
@@ -149,7 +153,7 @@ io.on('connection', (socket) => {
             room.secretWord = getRandomSolution();
             room.gameStarted = true;
             console.log(`[${roomCode}] Started. Secret: ${room.secretWord}`);
-            io.to(roomCode).emit('game_start', { players: Object.keys(room.players).map(id => ({ id, name: room.players[id].name })), maxPlayers: room.maxPlayers });
+            io.to(roomCode).emit('game_start', { players: Object.keys(room.players).map(id => ({ id, name: room.players[id].name, connected: room.players[id].connected })), maxPlayers: room.maxPlayers });
         }
     });
 
@@ -240,7 +244,7 @@ io.on('connection', (socket) => {
         room.secretWord = getRandomSolution();
         room.gameStarted = true;
         console.log(`[${roomCode}] Next round started. New Secret: ${room.secretWord}`);
-        io.to(roomCode).emit('game_start', { players: Object.keys(room.players).map(id => ({ id, name: room.players[id].name })), maxPlayers: room.maxPlayers });
+        io.to(roomCode).emit('game_start', { players: Object.keys(room.players).map(id => ({ id, name: room.players[id].name, connected: room.players[id].connected })), maxPlayers: room.maxPlayers });
     });
 
     // 4. Disconnect/Cleanup
@@ -250,6 +254,9 @@ io.on('connection', (socket) => {
         
         if (roomCode && rooms[roomCode]) {
             console.log(`[${roomCode}] Session ${sessionId?.substring(0,4)} disconnected. Preserving state.`);
+
+            rooms[roomCode].players[sessionId].connected = false;
+            io.to(roomCode).emit('player_connection_updated', { sessionId, connected: false });
         }
     });
 });

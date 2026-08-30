@@ -45,7 +45,7 @@ function App() {
   const [roomInput, setRoomInput] = useState('');
   const [currentRoom, setCurrentRoom] = useState<string | null>(null);
   const [maxPlayers, setMaxPlayers] = useState<number | null>(null);
-  const [players, setPlayers] = useState<{ id: string, name: string }[]>([]);
+  const [players, setPlayers] = useState<{ id: string, name: string, connected: boolean }[]>([]);
   const [gameStarted, setGameStarted] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [scores, setScores] = useState<Record<string, number>>({});
@@ -89,6 +89,12 @@ function App() {
       setIsConnected(false);
     });
 
+    socket.on('player_connection_updated', (data: { sessionId: string, connected: boolean }) => {
+      setPlayers(prevPlayers => prevPlayers.map(p => 
+        p.id === data.sessionId ? { ...p, connected: data.connected } : p
+      ));
+    });
+
     socket.on('restore_state', (data: any) => {
       setCurrentRoom(data.roomCode);
       setPlayers(data.players);
@@ -109,7 +115,7 @@ function App() {
       setIsRestoring(false);
     });
 
-    socket.on('room_updated', (data: { roomCode: string, players: { id: string, name: string }[], maxPlayers: number }) => {
+    socket.on('room_updated', (data: { roomCode: string, players: { id: string, name: string, connected: boolean }[], maxPlayers: number }) => {
       setCurrentRoom(data.roomCode);
       setPlayers(data.players);
       setMaxPlayers(data.maxPlayers);
@@ -119,7 +125,7 @@ function App() {
       setIsRestoring(false);
     });
 
-    socket.on('game_start', (data: { players: { id: string, name: string }[], maxPlayers: number }) => {
+    socket.on('game_start', (data: { players: { id: string, name: string, connected: boolean }[], maxPlayers: number }) => {
       if (data && data.players) {
         setPlayers(data.players);
       }
@@ -213,6 +219,7 @@ function App() {
       socket.off('match_over');
       socket.off('reveal_boards');
       socket.off('restore_state');
+      socket.off('player_connection_updated')
     };
 
   }, []);
@@ -375,6 +382,13 @@ function App() {
         <div style={{ marginTop: '30px' }}>
           <h2>Room: {currentRoom}</h2>
           <h3>Waiting for players... ({players.length}/{maxPlayers || 3})</h3>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '20px', alignItems: 'center' }}>
+            {players.map(p => (
+              <div key={p.id} style={{ fontSize: '18px', fontWeight: 'bold' }}>
+                {p.name} {p.connected ? '🟢' : '🔴'}
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
@@ -483,7 +497,7 @@ function App() {
 
               return (
                 <div key={opponent.id} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                  <h3>Player {opponent.name}</h3>
+                  <h3>{opponent.name} {opponent.connected ? '🟢' : '🔴'}</h3>
                   <p style={{ margin: '0 0 10px 0', fontWeight: 'bold' }}>
                     Score: {scores[opponent.id] || 0}
                   </p>
