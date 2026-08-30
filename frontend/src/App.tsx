@@ -379,9 +379,9 @@ function App() {
       )}
 
       {gameStarted && (
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '50px', marginTop: '20px' }}>
+        <div style={{ display: 'flex', flexDirection: 'row', justifyContent: 'center', alignItems: 'flex-start', gap: '80px', marginTop: '20px', flexWrap: 'wrap' }}>
 
-          {/* Main Player Board */}
+          {/* Main Player Board (Left Side) */}
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
             <h2>Your Board (Score: {scores[sessionId] || 0})</h2>
             <div style={{ display: 'grid', gridTemplateRows: 'repeat(6, 1fr)', gap: '5px', marginBottom: '20px' }}>
@@ -454,7 +454,7 @@ function App() {
                               fontWeight: 'bold',
                               cursor: 'pointer',
                               userSelect: 'none',
-                              touchAction: 'manipulation' // Prevents double-tap zooming on mobile
+                              touchAction: 'manipulation'
                             }}
                           >
                             {key}
@@ -475,10 +475,10 @@ function App() {
             )}
           </div>
 
-          {/* Opponent Spectator Boards Container */}
-          <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '40px', width: '100%', maxWidth: '800px' }}>
+          {/* Opponent Spectator Boards Container (Right Side) */}
+          {/* Max width of 450px forces the 2x2 grid, and justifyContent center handles the 3rd opponent */}
+          <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', alignContent: 'flex-start', gap: '40px', width: '100%', maxWidth: '450px' }}>
             {players.filter(player => player.id !== sessionId).map((opponent) => {
-              // Safely grab the data if they've guessed, or use a blank default if it's a new round
               const data = opponents[opponent.id] || { board: [], guessesCount: 0, status: 'playing' };
 
               return (
@@ -492,10 +492,8 @@ function App() {
                     {Array.from({ length: 6 }).map((_, rowIndex) => (
                       <div key={`opp-${opponent.id}-row-${rowIndex}`} style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '3px' }}>
                         {Array.from({ length: 5 }).map((_, colIndex) => {
-                          // Extract the row data for this specific guess
                           const rowData = data.board[rowIndex];
                           const color = rowData ? rowData.colors[colIndex] : 'white';
-                          // If the guess text exists, grab the specific letter. Otherwise, empty string.
                           const letter = (rowData && rowData.guess) ? rowData.guess[colIndex] : '';
 
                           return renderSquare(letter, color, `opp-${opponent.id}-${rowIndex}-${colIndex}`, 30);
