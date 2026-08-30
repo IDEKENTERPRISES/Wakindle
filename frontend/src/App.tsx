@@ -53,7 +53,7 @@ function App() {
 
   // Local Player State
   const [currentGuess, setCurrentGuess] = useState('');
-  const [myName, setMyName] = useState<string | null>(null);
+  const [myName, setMyName] = useState<string | null>(() => sessionStorage.getItem('wakindle_name'));
   const [nameInput, setNameInput] = useState('');
   const [myGuesses, setMyGuesses] = useState<GuessData[]>([]);
   const [playerStatus, setPlayerStatus] = useState<'playing' | 'won' | 'lost'>('playing');
@@ -62,7 +62,26 @@ function App() {
   const [opponents, setOpponents] = useState<Record<string, OpponentState>>({});
 
   useEffect(() => {
-    socket.on('connect', () => setIsConnected(true));
+    // Helper function to handle auto-joining
+    const tryAutoJoin = () => {
+      const savedRoom = sessionStorage.getItem('wakindle_room');
+      const savedName = sessionStorage.getItem('wakindle_name');
+      if (savedRoom) {
+        socket.emit('join_room', savedRoom, savedName || `Guest-${sessionId.substring(0, 4)}`, sessionId);
+      }
+    };
+
+    // If the socket connected BEFORE React ran this effect, fire it manually
+    if (socket.connected) {
+      setIsConnected(true);
+      tryAutoJoin();
+    }
+
+    socket.on('connect', () => {
+      setIsConnected(true);
+      tryAutoJoin(); // Also fire on standard connections/reconnections
+    });
+
     socket.on('disconnect', () => {
       setIsConnected(false);
     });
@@ -290,7 +309,14 @@ function App() {
             maxLength={10}
             style={{ padding: '10px', fontSize: '16px', marginRight: '10px' }}
           />
-          <button onClick={() => setMyName(nameInput || "Guest-" + socket.id?.substring(0, 4))} style={{ padding: '10px 20px', fontSize: '16px' }}>
+          <button 
+            onClick={() => {
+              const nameToSave = nameInput || "Guest-" + (socket.id?.substring(0, 4) || sessionId.substring(0, 4));
+              setMyName(nameToSave);
+              sessionStorage.setItem('wakindle_name', nameToSave);
+            }} 
+            style={{ padding: '10px 20px', fontSize: '16px' }}
+          >
             Set Name
           </button>
         </div>
