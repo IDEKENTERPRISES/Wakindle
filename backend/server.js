@@ -339,13 +339,19 @@ io.on('connection', (socket) => {
         delete socketMap[socket.id];
         socket.leave(roomCode);
 
-        // Shrink the room limit
-        room.maxPlayers = Math.max(1, room.maxPlayers - 1);
+        // Shrink the room limit if game has already started, but never below 2
+        if (room.gameStarted) {
+            room.maxPlayers = Math.max(2, room.maxPlayers - 1);
+        }
 
-        // If room is now completely empty, destroy it
-        if (Object.keys(room.players).length === 0) {
+        const remainingPlayers = Object.keys(room.players).length;
+        if (remainingPlayers <= 1) {
+            if (remainingPlayers === 1) {
+                // Boot the last remaining player back to the main menu safely
+                io.to(roomCode).emit('room_error', 'All opponents left. Room closed.');
+            }
             delete rooms[roomCode];
-            console.log(`[${roomCode}] Room empty. Destroyed.`);
+            console.log(`[${roomCode}] Not enough players. Room destroyed.`);
             return;
         }
 
