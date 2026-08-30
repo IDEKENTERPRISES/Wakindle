@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
 
 const socket: Socket = io({ path: '/socket.io' });
@@ -39,6 +39,108 @@ const getSessionId = () => {
   }
   return sid;
 };
+
+// --- Matrix Background Component ---
+const LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+const COLORS = ['#538d4e', '#b59f3b', '#3a3a3c']; // Green, Yellow, Gray
+
+interface MatrixColumn {
+  id: number;
+  actualLeft: number;
+  duration: number;
+  baseDelay: number;
+  scale: number;
+  boxes: { letter: string; color: string }[];
+}
+
+const MatrixBackground = React.memo(() => {
+  const [config, setConfig] = useState<MatrixColumn[]>([]);
+  const [elapsed, setElapsed] = useState(0);
+
+  useEffect(() => {
+    let savedConfig = sessionStorage.getItem('wakindle_matrix_config');
+    let startTime = sessionStorage.getItem('wakindle_matrix_start');
+
+    if (!savedConfig || !startTime) {
+      startTime = Date.now().toString();
+      const newConfig: MatrixColumn[] = [];
+      
+      // Generate 20 columns (10 on the left side, 10 on the right side)
+      for (let i = 0; i < 20; i++) {
+        const isLeft = i < 10;
+        // Keep them in the 0-15% or 85-100% margins
+        const leftPos = Math.random() * 15; 
+        const actualLeft = isLeft ? leftPos : 85 + leftPos;
+        
+        const boxes = [];
+        const numBoxes = 3 + Math.floor(Math.random() * 4); // 3 to 6 boxes per string
+        for (let j = 0; j < numBoxes; j++) {
+          boxes.push({
+            letter: LETTERS[Math.floor(Math.random() * LETTERS.length)],
+            color: COLORS[Math.floor(Math.random() * COLORS.length)]
+          });
+        }
+
+        newConfig.push({
+          id: i,
+          actualLeft,
+          duration: 15 + Math.random() * 20, // 15 to 35 seconds to fall
+          baseDelay: -(Math.random() * 30), // Start at a random negative point
+          scale: 0.6 + Math.random() * 0.6, // Randomize sizes for depth
+          boxes
+        });
+      }
+      savedConfig = JSON.stringify(newConfig);
+      sessionStorage.setItem('wakindle_matrix_config', savedConfig);
+      sessionStorage.setItem('wakindle_matrix_start', startTime);
+    }
+
+    setConfig(JSON.parse(savedConfig));
+    // Calculate how many seconds have passed since they first opened the tab
+    setElapsed((Date.now() - parseInt(startTime)) / 1000);
+  }, []);
+
+  if (config.length === 0) return null;
+
+  return (
+    <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', zIndex: -1, overflow: 'hidden', pointerEvents: 'none', opacity: 0.4 }}>
+      <style>
+        {`
+          @keyframes matrixFall {
+            0% { transform: translateY(-100%); top: 0; }
+            100% { transform: translateY(100vh); top: 0; }
+          }
+        `}
+      </style>
+      {config.map(col => (
+        <div key={col.id} style={{
+          position: 'absolute',
+          left: `${col.actualLeft}vw`,
+          top: 0,
+          transform: 'translateY(-100%)',
+          animation: `matrixFall ${col.duration}s linear infinite`,
+          // Subtract the elapsed time so it resumes perfectly where it left off
+          animationDelay: `${col.baseDelay - elapsed}s`,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '6px',
+          scale: col.scale,
+        }}>
+          {col.boxes.map((box, i) => (
+            <div key={i} style={{
+              width: '45px', height: '45px',
+              backgroundColor: box.color, color: 'white',
+              display: 'flex', justifyContent: 'center', alignItems: 'center',
+              fontSize: '24px', fontWeight: 'bold', border: '2px solid transparent'
+            }}>
+              {box.letter}
+            </div>
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+});
 
 function App() {
   const [isConnected, setIsConnected] = useState(socket.connected);
@@ -326,6 +428,7 @@ const handleLeaveRoom = () => {
 
   return (
     <div style={{ fontFamily: 'sans-serif', textAlign: 'center', marginTop: '30px' }}>
+      <MatrixBackground />
       <h1>Wakindle</h1>
       <p style={{ fontSize: '12px', color: 'gray' }}>
         Server: {isConnected ? '🟢' : '🔴'} | ID: {socket.id}
