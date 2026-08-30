@@ -96,6 +96,11 @@ io.on('connection', (socket) => {
         if (room.players[sessionId]) {
             console.log(`[${roomCode}] ${playerName} reconnected.`);
             room.players[sessionId].name = playerName; 
+
+            if (room.players[sessionId].disconnectTimer) {
+                clearTimeout(room.players[sessionId].disconnectTimer);
+                delete room.players[sessionId].disconnectTimer;
+            }
             
             room.players[sessionId].connected = true;
             socket.to(roomCode).emit('player_connection_updated', { sessionId, connected: true });
@@ -257,6 +262,123 @@ io.on('connection', (socket) => {
 
             rooms[roomCode].players[sessionId].connected = false;
             io.to(roomCode).emit('player_connection_updated', { sessionId, connected: false });
+
+            rooms[roomCode].players[sessionId].disconnectTimer = setTimeout(() => {
+                if (room.players[sessionId]) {
+                    console.log(`[${roomCode}] Session ${sessionId?.substring(0,4)} timed out. Removing player.`);
+                    
+                    // Remove player data
+                    delete room.players[sessionId];
+                    delete room.scores[sessionId];
+                    
+                    // Shrink the room limit
+                    room.maxPlayers = Math.max(1, room.maxPlayers - 1);
+
+                    // If room is now completely empty, destroy it to prevent memory leaks
+                    if (Object.keys(room.players).length === 0) {
+                        delete rooms[roomCode];
+                        console.log(`[${roomCode}] Room empty. Destroyed.`);
+                        return;
+                    }
+
+                    // Tell the remaining players the new roster and max players limit
+                    io.to(roomCode).emit('room_updated', { 
+                        roomCode, 
+                        players: Object.keys(room.players).map(id => ({ 
+                            id, 
+                            name: room.players[id].name,
+                            connected: room.players[id].connected
+                        })),
+                        maxPlayers: room.maxPlayers
+                    });
+
+                    // Check if kicking this player changes the game state
+                    if (room.gameStarted) {
+                        // Did kicking the only active player just finish the round for everyone else?
+                        const allFinished = Object.values(room.players).every(p => p.status !== 'playing');
+                        if (allFinished) {
+                            room.gameStarted = false; 
+                            io.to(roomCode).emit('match_over', { secretWord: room.secretWord, scores: room.scores });
+                        }
+                    } else {
+                        // Did shrinking the room just make a waiting lobby full and ready to start?
+                        if (Object.keys(room.players).length === room.maxPlayers && room.maxPlayers > 1) {
+                            room.secretWord = getRandomSolution();
+                            room.gameStarted = true;
+                            io.to(roomCode).emit('game_start', { 
+                                players: Object.keys(room.players).map(id => ({ 
+                                    id, name: room.players[id].name, connected: room.players[id].connected 
+                                })) 
+                            });
+                        }
+                    }
+                }
+            }, 60000); // 60 seconds
+        }
+    });
+
+    // 5. Handle Voluntary Leave
+    socket.on('leave_room', () => {
+        const { roomCode, sessionId } = socketMap[socket.id] || {};
+        if (!roomCode || !rooms[roomCode] || !rooms[roomCode].players[sessionId]) return;
+
+        const room = rooms[roomCode];
+
+        console.log(`[${roomCode}] Session ${sessionId?.substring(0,4)} voluntarily left.`);
+        
+        // Remove their disconnect timer if they somehow triggered this while offline
+        if (room.players[sessionId].disconnectTimer) {
+            clearTimeout(room.players[sessionId].disconnectTimer);
+        }
+        
+        // Remove player data
+        delete room.players[sessionId];
+        delete room.scores[sessionId];
+        
+        // Disconnect their socket from the Socket.IO room channel
+        delete socketMap[socket.id];
+        socket.leave(roomCode);
+
+        // Shrink the room limit
+        room.maxPlayers = Math.max(1, room.maxPlayers - 1);
+
+        // If room is now completely empty, destroy it
+        if (Object.keys(room.players).length === 0) {
+            delete rooms[roomCode];
+            console.log(`[${roomCode}] Room empty. Destroyed.`);
+            return;
+        }
+
+        // Tell the remaining players the new roster and max players limit
+        io.to(roomCode).emit('room_updated', { 
+            roomCode, 
+            players: Object.keys(room.players).map(id => ({ 
+                id, 
+                name: room.players[id].name,
+                connected: room.players[id].connected
+            })),
+            maxPlayers: room.maxPlayers
+        });
+
+        // Check if leaving changes the game state
+        if (room.gameStarted) {
+            // Did the last active player leave, ending the round for everyone else?
+            const allFinished = Object.values(room.players).every(p => p.status !== 'playing');
+            if (allFinished) {
+                room.gameStarted = false; 
+                io.to(roomCode).emit('match_over', { secretWord: room.secretWord, scores: room.scores });
+            }
+        } else {
+            // Did shrinking the room just make a waiting lobby full and ready to start?
+            if (Object.keys(room.players).length === room.maxPlayers && room.maxPlayers > 1) {
+                room.secretWord = getRandomSolution();
+                room.gameStarted = true;
+                io.to(roomCode).emit('game_start', { 
+                    players: Object.keys(room.players).map(id => ({ 
+                        id, name: room.players[id].name, connected: room.players[id].connected 
+                    })) 
+                });
+            }
         }
     });
 });

@@ -224,14 +224,20 @@ function App() {
 
   }, []);
 
-  // const resetGameState = () => {
-  //   setCurrentRoom(null);
-  //   setGameStarted(false);
-  //   setMyGuesses([]);
-  //   setOpponents({});
-  //   setPlayerStatus('playing');
-  //   setRevealedWord(null);
-  // };
+const handleLeaveRoom = () => {
+    socket.emit('leave_room');
+    
+    // Clear persistence so they don't auto-rejoin on refresh
+    sessionStorage.removeItem('wakindle_room');
+    
+    // Reset UI back to the main menu
+    setCurrentRoom(null);
+    setGameStarted(false);
+    setMyGuesses([]);
+    setOpponents({});
+    setPlayerStatus('playing');
+    setRevealedWord(null);
+  };
 
   const handleJoinRoom = () => {
     let nameToUse = myName;
@@ -327,6 +333,19 @@ function App() {
       <p style={{ fontSize: '12px', color: 'gray' }}>
         Name: {myName || "Guest-" + sessionId.substring(0, 4)}
       </p>
+
+      {currentRoom && (
+        <button 
+          onClick={handleLeaveRoom}
+          style={{ 
+            marginTop: '5px', padding: '8px 16px', fontSize: '14px', 
+            backgroundColor: '#e74c3c', color: 'white', border: 'none', 
+            borderRadius: '5px', cursor: 'pointer', fontWeight: 'bold' 
+          }}
+        >
+          Leave Room
+        </button>
+      )}
 
       {error && <p style={{ color: 'red', fontWeight: 'bold' }}>{error}</p>}
 
