@@ -115,7 +115,7 @@ io.on('connection', (socket) => {
                 gameStarted: room.gameStarted,
                 myState: room.players[sessionId],
                 scores: room.scores,
-                secretWord: (room.players[sessionId].status !== 'playing') ? room.secretWord : null,
+                secretWord: (!room.gameStarted) ? room.secretWord : null,
                 opponents: secureOpponents
             });
             return;

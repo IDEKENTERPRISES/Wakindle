@@ -91,7 +91,7 @@ function App() {
       setCurrentRoom(data.roomCode);
       setPlayers(data.players);
       setScores(data.scores);
-      
+
       setGameStarted(data.gameStarted);
       if (data.myState) {
         setMyGuesses(data.myState.fullBoard);
@@ -101,7 +101,7 @@ function App() {
         setOpponents(data.opponents);
       }
       setRevealedWord(data.secretWord || null);
-      
+
       // Clear the loading state
       setIsRestoring(false);
     });
@@ -110,7 +110,7 @@ function App() {
       setCurrentRoom(data.roomCode);
       setPlayers(data.players);
       setError(null);
-      
+
       // Clear the loading state
       setIsRestoring(false);
     });
@@ -133,7 +133,7 @@ function App() {
       setIsRestoring(false);
       sessionStorage.removeItem('wakindle_room');
     });
-    
+
     socket.on('guess_error', (message: string) => {
       setError(message);
       // Auto-clear the error message after 2.5 seconds
@@ -226,8 +226,9 @@ function App() {
     let nameToUse = myName;
 
     if (!nameToUse) {
-      nameToUse = "Guest-" + socket.id?.substring(0, 4);
+      nameToUse = "Guest-" + sessionId.substring(0, 4);
       setMyName(nameToUse);
+      sessionStorage.setItem('wakindle_name', nameToUse);
     }
 
     if (roomInput.trim()) {
@@ -236,7 +237,7 @@ function App() {
       socket.emit('join_room', roomInput, nameToUse, sessionId);
     }
   };
-  
+
 
   const handleGuessSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -258,7 +259,7 @@ function App() {
       guessData.guess.split('').forEach((letter, i) => {
         const color = guessData.colors[i];
         const existing = statuses[letter];
-        
+
         // Priority: Green > Yellow > Gray
         if (color === 'green') {
           statuses[letter] = 'green';
@@ -274,7 +275,7 @@ function App() {
 
   const handleVirtualKey = (key: string) => {
     if (playerStatus !== 'playing') return;
-    
+
     if (key === 'ENTER') {
       if (currentGuess.length === 5) {
         socket.emit('submit_guess', { roomCode: currentRoom, guess: currentGuess });
@@ -313,7 +314,7 @@ function App() {
         Server: {isConnected ? '🟢' : '🔴'} | ID: {socket.id}
       </p>
       <p style={{ fontSize: '12px', color: 'gray' }}>
-        Name: {myName || "Guest-" + socket.id?.substring(0, 4)}
+        Name: {myName || "Guest-" + sessionId.substring(0, 4)}
       </p>
 
       {error && <p style={{ color: 'red', fontWeight: 'bold' }}>{error}</p>}
@@ -335,7 +336,7 @@ function App() {
               />
               <button 
                 onClick={() => {
-                  const nameToSave = nameInput || "Guest-" + (socket.id?.substring(0, 4) || sessionId.substring(0, 4));
+                  const nameToSave = nameInput || "Guest-" + sessionId.substring(0, 4);
                   setMyName(nameToSave);
                   sessionStorage.setItem('wakindle_name', nameToSave);
                 }} 
@@ -399,7 +400,7 @@ function App() {
             {/* Conditionally render input OR status message */}
             {playerStatus === 'playing' ? (
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: '100%', maxWidth: '500px' }}>
-                
+
                 {/* Keep physical input working for desktop users */}
                 <form onSubmit={handleGuessSubmit} style={{ marginBottom: '20px' }}>
                   <input
@@ -420,12 +421,12 @@ function App() {
                       {row.map(key => {
                         const statuses = getLetterStatuses();
                         const status = statuses[key];
-                        
+
                         // Determine key colors
                         const bgColor = status === 'green' ? '#538d4e' : status === 'yellow' ? '#b59f3b' : status === 'gray' ? '#3a3a3c' : '#d3d6da';
                         const textColor = status ? '#ffffff' : '#000000';
                         const isAction = key === 'ENTER' || key === '⌫';
-                        
+
                         return (
                           <button
                             key={key}
