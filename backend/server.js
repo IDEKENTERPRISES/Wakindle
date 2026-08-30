@@ -70,7 +70,7 @@ io.on('connection', (socket) => {
     console.log(`Socket ${socket.id.substring(0, 4)} connected`);
 
     // 1. Join/Create Room
-    socket.on('join_room', (roomCode, playerName, sessionId) => {
+    socket.on('join_room', (roomCode, playerName, sessionId, maxPlayers) => {
         roomCode = roomCode.toUpperCase();
         playerName = playerName ? playerName.trim() : '';
         if (playerName && playerName.length > 1 && playerName.length < 11) {
@@ -78,9 +78,13 @@ io.on('connection', (socket) => {
         } else {
             playerName = `Guest-${sessionId.substring(0, 4)}`;
         }
-        
+
+        if (!(maxPlayers && Number.isInteger(maxPlayers) && maxPlayers > 1 && maxPlayers <= 5)) {
+            maxPlayers = 3;
+        }
+
         if (!rooms[roomCode]) {
-            rooms[roomCode] = { secretWord: '', gameStarted: false, players: {}, scores: {} };
+            rooms[roomCode] = { secretWord: '', gameStarted: false, players: {}, scores: {}, maxPlayers };
         }
         const room = rooms[roomCode];
 
@@ -116,13 +120,14 @@ io.on('connection', (socket) => {
                 myState: room.players[sessionId],
                 scores: room.scores,
                 secretWord: (!room.gameStarted) ? room.secretWord : null,
-                opponents: secureOpponents
+                opponents: secureOpponents,
+                maxPlayers: room.maxPlayers
             });
             return;
         }
 
         // NEW PLAYER LOGIC
-        if (Object.keys(room.players).length >= 3) {
+        if (Object.keys(room.players).length >= room.maxPlayers) {
             socket.emit('room_error', 'This room is already full!');
             return;
         }
@@ -136,14 +141,15 @@ io.on('connection', (socket) => {
 
         io.to(roomCode).emit('room_updated', { 
             roomCode, 
-            players: Object.keys(room.players).map(id => ({ id, name: room.players[id].name })) 
+            players: Object.keys(room.players).map(id => ({ id, name: room.players[id].name })),
+            maxPlayers: room.maxPlayers
         });
 
-        if (Object.keys(room.players).length === 3) {
+        if (Object.keys(room.players).length === room.maxPlayers) {
             room.secretWord = getRandomSolution();
             room.gameStarted = true;
             console.log(`[${roomCode}] Started. Secret: ${room.secretWord}`);
-            io.to(roomCode).emit('game_start', { players: Object.keys(room.players).map(id => ({ id, name: room.players[id].name })) });
+            io.to(roomCode).emit('game_start', { players: Object.keys(room.players).map(id => ({ id, name: room.players[id].name })), maxPlayers: room.maxPlayers });
         }
     });
 
@@ -234,7 +240,7 @@ io.on('connection', (socket) => {
         room.secretWord = getRandomSolution();
         room.gameStarted = true;
         console.log(`[${roomCode}] Next round started. New Secret: ${room.secretWord}`);
-        io.to(roomCode).emit('game_start', { players: Object.keys(room.players).map(id => ({ id, name: room.players[id].name })) });
+        io.to(roomCode).emit('game_start', { players: Object.keys(room.players).map(id => ({ id, name: room.players[id].name })), maxPlayers: room.maxPlayers });
     });
 
     // 4. Disconnect/Cleanup

@@ -44,6 +44,7 @@ function App() {
   const [isConnected, setIsConnected] = useState(socket.connected);
   const [roomInput, setRoomInput] = useState('');
   const [currentRoom, setCurrentRoom] = useState<string | null>(null);
+  const [maxPlayers, setMaxPlayers] = useState<number | null>(null);
   const [players, setPlayers] = useState<{ id: string, name: string }[]>([]);
   const [gameStarted, setGameStarted] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -67,8 +68,9 @@ function App() {
     const tryAutoJoin = () => {
       const savedRoom = sessionStorage.getItem('wakindle_room');
       const savedName = sessionStorage.getItem('wakindle_name');
+      const savedMaxPlayers = sessionStorage.getItem('wakindle_maxPlayers');
       if (savedRoom) {
-        socket.emit('join_room', savedRoom, savedName || `Guest-${sessionId.substring(0, 4)}`, sessionId);
+        socket.emit('join_room', savedRoom, savedName || `Guest-${sessionId.substring(0, 4)}`, sessionId, savedMaxPlayers ? parseInt(savedMaxPlayers) : 3);
       }
     };
 
@@ -91,8 +93,9 @@ function App() {
       setCurrentRoom(data.roomCode);
       setPlayers(data.players);
       setScores(data.scores);
-
+      setMaxPlayers(data.maxPlayers);
       setGameStarted(data.gameStarted);
+
       if (data.myState) {
         setMyGuesses(data.myState.fullBoard);
         setPlayerStatus(data.myState.status);
@@ -106,20 +109,21 @@ function App() {
       setIsRestoring(false);
     });
 
-    socket.on('room_updated', (data: { roomCode: string, players: { id: string, name: string }[] }) => {
+    socket.on('room_updated', (data: { roomCode: string, players: { id: string, name: string }[], maxPlayers: number }) => {
       setCurrentRoom(data.roomCode);
       setPlayers(data.players);
+      setMaxPlayers(data.maxPlayers);
       setError(null);
 
       // Clear the loading state
       setIsRestoring(false);
     });
 
-    socket.on('game_start', (data: { players: { id: string, name: string }[] }) => {
+    socket.on('game_start', (data: { players: { id: string, name: string }[], maxPlayers: number }) => {
       if (data && data.players) {
         setPlayers(data.players);
       }
-
+      setMaxPlayers(data.maxPlayers);
       setMyGuesses([]);
       setOpponents({});
       setPlayerStatus('playing');
@@ -234,7 +238,7 @@ function App() {
     if (roomInput.trim()) {
       sessionStorage.setItem('wakindle_room', roomInput.toUpperCase());
       sessionStorage.setItem('wakindle_name', nameToUse);
-      socket.emit('join_room', roomInput, nameToUse, sessionId);
+      socket.emit('join_room', roomInput, nameToUse, sessionId, maxPlayers || 3); // Default maxPlayers to 3 for now
     }
   };
 
@@ -334,11 +338,19 @@ function App() {
                 maxLength={10}
                 style={{ padding: '10px', fontSize: '16px', marginRight: '10px' }}
               />
+              <input
+                type="number" placeholder="MAX PLAYERS" value={maxPlayers || 3}
+                onChange={(e) => setMaxPlayers(parseInt(e.target.value) || null)}
+                min="2"
+                max="5"
+                style={{ padding: '10px', fontSize: '16px', marginRight: '10px' }}
+              />
               <button 
                 onClick={() => {
                   const nameToSave = nameInput || "Guest-" + sessionId.substring(0, 4);
                   setMyName(nameToSave);
                   sessionStorage.setItem('wakindle_name', nameToSave);
+                  sessionStorage.setItem('wakindle_maxPlayers', (maxPlayers || 3).toString());
                 }} 
                 style={{ padding: '10px 20px', fontSize: '16px' }}
               >
@@ -362,12 +374,12 @@ function App() {
       {currentRoom && !gameStarted && (
         <div style={{ marginTop: '30px' }}>
           <h2>Room: {currentRoom}</h2>
-          <h3>Waiting for players... ({players.length}/3)</h3>
+          <h3>Waiting for players... ({players.length}/{maxPlayers || 3})</h3>
         </div>
       )}
 
       {gameStarted && (
-        <div style={{ display: 'flex', justifyContent: 'center', gap: '50px', marginTop: '20px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '50px', marginTop: '20px' }}>
 
           {/* Main Player Board */}
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
@@ -463,47 +475,49 @@ function App() {
             )}
           </div>
 
-          {/* Opponent Spectator Boards */}
-          {players.filter(player => player.id !== sessionId).map((opponent) => {
-            // Safely grab the data if they've guessed, or use a blank default if it's a new round
-            const data = opponents[opponent.id] || { board: [], guessesCount: 0, status: 'playing' };
+          {/* Opponent Spectator Boards Container */}
+          <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '40px', width: '100%', maxWidth: '800px' }}>
+            {players.filter(player => player.id !== sessionId).map((opponent) => {
+              // Safely grab the data if they've guessed, or use a blank default if it's a new round
+              const data = opponents[opponent.id] || { board: [], guessesCount: 0, status: 'playing' };
 
-            return (
-              <div key={opponent.id} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                <h3>Player {opponent.name}</h3>
-                <p style={{ margin: '0 0 10px 0', fontWeight: 'bold' }}>
-                  Score: {scores[opponent.id] || 0}
-                </p>
+              return (
+                <div key={opponent.id} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                  <h3>Player {opponent.name}</h3>
+                  <p style={{ margin: '0 0 10px 0', fontWeight: 'bold' }}>
+                    Score: {scores[opponent.id] || 0}
+                  </p>
 
-                <div style={{ display: 'grid', gridTemplateRows: 'repeat(6, 1fr)', gap: '3px', marginBottom: '10px' }}>
-                  {Array.from({ length: 6 }).map((_, rowIndex) => (
-                    <div key={`opp-${opponent.id}-row-${rowIndex}`} style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '3px' }}>
-                      {Array.from({ length: 5 }).map((_, colIndex) => {
-                        // Extract the row data for this specific guess
-                        const rowData = data.board[rowIndex];
-                        const color = rowData ? rowData.colors[colIndex] : 'white';
-                        // If the guess text exists, grab the specific letter. Otherwise, empty string.
-                        const letter = (rowData && rowData.guess) ? rowData.guess[colIndex] : '';
+                  <div style={{ display: 'grid', gridTemplateRows: 'repeat(6, 1fr)', gap: '3px', marginBottom: '10px' }}>
+                    {Array.from({ length: 6 }).map((_, rowIndex) => (
+                      <div key={`opp-${opponent.id}-row-${rowIndex}`} style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '3px' }}>
+                        {Array.from({ length: 5 }).map((_, colIndex) => {
+                          // Extract the row data for this specific guess
+                          const rowData = data.board[rowIndex];
+                          const color = rowData ? rowData.colors[colIndex] : 'white';
+                          // If the guess text exists, grab the specific letter. Otherwise, empty string.
+                          const letter = (rowData && rowData.guess) ? rowData.guess[colIndex] : '';
 
-                        return renderSquare(letter, color, `opp-${opponent.id}-${rowIndex}-${colIndex}`, 30);
-                      })}
-                    </div>
-                  ))}
+                          return renderSquare(letter, color, `opp-${opponent.id}-${rowIndex}-${colIndex}`, 30);
+                        })}
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Opponent Status & Guess Count */}
+                  <div style={{ fontSize: '18px', fontWeight: 'bold' }}>
+                    {data.status === 'playing' ? (
+                      <span>{data.guessesCount} / 6</span>
+                    ) : data.status === 'won' ? (
+                      <span style={{ color: 'green' }}>✓ Won in {data.guessesCount}</span>
+                    ) : (
+                      <span style={{ color: 'red' }}>✗ Lost</span>
+                    )}
+                  </div>
                 </div>
-
-                {/* Opponent Status & Guess Count */}
-                <div style={{ fontSize: '18px', fontWeight: 'bold' }}>
-                  {data.status === 'playing' ? (
-                    <span>{data.guessesCount} / 6</span>
-                  ) : data.status === 'won' ? (
-                    <span style={{ color: 'green' }}>✓ Won in {data.guessesCount}</span>
-                  ) : (
-                    <span style={{ color: 'red' }}>✗ Lost</span>
-                  )}
-                </div>
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
 
         </div>
       )}
