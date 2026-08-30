@@ -91,11 +91,10 @@ io.on('connection', (socket) => {
         // RECONNECTION LOGIC
         if (room.players[sessionId]) {
             console.log(`[${roomCode}] ${playerName} reconnected.`);
-            room.players[sessionId].name = playerName; // Update name just in case
+            room.players[sessionId].name = playerName; 
             
-            // Calculate what opponent data this player is allowed to see right now
             const secureOpponents = {};
-            if (room.gameStarted) {
+            if (room.gameStarted || room.secretWord) {
                 const isFinished = room.players[sessionId].status !== 'playing';
                 for (const oppId in room.players) {
                     if (oppId === sessionId) continue;
@@ -116,7 +115,7 @@ io.on('connection', (socket) => {
                 gameStarted: room.gameStarted,
                 myState: room.players[sessionId],
                 scores: room.scores,
-                secretWord: (room.gameStarted && room.players[sessionId].status !== 'playing') ? room.secretWord : null,
+                secretWord: (room.players[sessionId].status !== 'playing') ? room.secretWord : null,
                 opponents: secureOpponents
             });
             return;

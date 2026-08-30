@@ -65,7 +65,6 @@ function App() {
     socket.on('connect', () => setIsConnected(true));
     socket.on('disconnect', () => {
       setIsConnected(false);
-      resetGameState();
     });
 
     socket.on('restore_state', (data: any) => {
@@ -73,13 +72,15 @@ function App() {
       setPlayers(data.players);
       setScores(data.scores);
       
-      if (data.gameStarted) {
-        setGameStarted(true);
+      setGameStarted(data.gameStarted);
+      if (data.myState) {
         setMyGuesses(data.myState.fullBoard);
         setPlayerStatus(data.myState.status);
-        setRevealedWord(data.secretWord);
+      }
+      if (data.opponents) {
         setOpponents(data.opponents);
       }
+      setRevealedWord(data.secretWord || null);
     });
 
     socket.on('room_updated', (data: { roomCode: string, players: { id: string, name: string }[] }) => {
@@ -176,14 +177,14 @@ function App() {
 
   }, []);
 
-  const resetGameState = () => {
-    setCurrentRoom(null);
-    setGameStarted(false);
-    setMyGuesses([]);
-    setOpponents({});
-    setPlayerStatus('playing');
-    setRevealedWord(null);
-  };
+  // const resetGameState = () => {
+  //   setCurrentRoom(null);
+  //   setGameStarted(false);
+  //   setMyGuesses([]);
+  //   setOpponents({});
+  //   setPlayerStatus('playing');
+  //   setRevealedWord(null);
+  // };
 
   const handleJoinRoom = () => {
     let nameToUse = myName;
@@ -194,6 +195,8 @@ function App() {
     }
 
     if (roomInput.trim()) {
+      sessionStorage.setItem('wakindle_room', roomInput.toUpperCase());
+      sessionStorage.setItem('wakindle_name', nameToUse);
       socket.emit('join_room', roomInput, nameToUse, sessionId);
     }
   };
@@ -315,7 +318,7 @@ function App() {
 
           {/* Main Player Board */}
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-            <h2>Your Board (Score: {scores[socket.id || ''] || 0})</h2>
+            <h2>Your Board (Score: {scores[sessionId] || 0})</h2>
             <div style={{ display: 'grid', gridTemplateRows: 'repeat(6, 1fr)', gap: '5px', marginBottom: '20px' }}>
               {Array.from({ length: 6 }).map((_, rowIndex) => {
                 const isCurrentRow = rowIndex === myGuesses.length && playerStatus === 'playing';
@@ -408,7 +411,7 @@ function App() {
           </div>
 
           {/* Opponent Spectator Boards */}
-          {players.filter(player => player.id !== socket.id).map((opponent) => {
+          {players.filter(player => player.id !== sessionId).map((opponent) => {
             // Safely grab the data if they've guessed, or use a blank default if it's a new round
             const data = opponents[opponent.id] || { board: [], guessesCount: 0, status: 'playing' };
 
