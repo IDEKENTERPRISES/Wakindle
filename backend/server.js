@@ -95,13 +95,13 @@ io.on('connection', (socket) => {
         // RECONNECTION LOGIC
         if (room.players[sessionId]) {
             console.log(`[${roomCode}] ${playerName} reconnected.`);
-            room.players[sessionId].name = playerName; 
+            room.players[sessionId].name = playerName;
 
             if (room.players[sessionId].disconnectTimer) {
                 clearTimeout(room.players[sessionId].disconnectTimer);
                 delete room.players[sessionId].disconnectTimer;
             }
-            
+
             room.players[sessionId].connected = true;
             socket.to(roomCode).emit('player_connection_updated', { sessionId, connected: true });
 
@@ -148,8 +148,8 @@ io.on('connection', (socket) => {
 
         if (room.scores[sessionId] === undefined) room.scores[sessionId] = 0;
 
-        io.to(roomCode).emit('room_updated', { 
-            roomCode, 
+        io.to(roomCode).emit('room_updated', {
+            roomCode,
             players: Object.keys(room.players).map(id => ({ id, name: room.players[id].name, connected: room.players[id].connected })),
             maxPlayers: room.maxPlayers
         });
@@ -167,7 +167,7 @@ io.on('connection', (socket) => {
         // Look up the session ID based on the socket that sent the request
         const { roomCode, sessionId } = socketMap[socket.id] || {};
         if (!roomCode || !sessionId) return;
-        
+
         const room = rooms[roomCode];
         if (!room || !room.gameStarted || !room.players[sessionId]) return;
         const player = room.players[sessionId];
@@ -188,10 +188,10 @@ io.on('connection', (socket) => {
 
         let newStatus = player.status;
         const isCorrect = gradedColors.every(c => c === 'green');
-        
+
         if (isCorrect) {
             newStatus = 'won';
-            room.scores[sessionId] += (7 - player.guessesCount); 
+            room.scores[sessionId] += (7 - player.guessesCount);
         } else if (player.guessesCount >= 6) {
             newStatus = 'lost';
         }
@@ -199,8 +199,8 @@ io.on('connection', (socket) => {
 
         // TARGETED BROADCAST
         for (const oppSessionId in room.players) {
-            if (oppSessionId === sessionId) continue; 
-            
+            if (oppSessionId === sessionId) continue;
+
             // We must broadcast to the specific socket attached to this session
             // Find the socket ID that matches the opponent's session ID
             const oppSocketId = Object.keys(socketMap).find(key => socketMap[key].sessionId === oppSessionId);
@@ -208,13 +208,13 @@ io.on('connection', (socket) => {
 
             const canSeeLetters = room.players[oppSessionId].status !== 'playing';
 
-            io.to(oppSocketId).emit('opponent_update', { 
-                playerId: sessionId, 
+            io.to(oppSocketId).emit('opponent_update', {
+                playerId: sessionId,
                 colors: gradedColors,
                 guessesCount: player.guessesCount,
                 status: player.status,
                 didWin: isCorrect,
-                guess: canSeeLetters ? cleanGuess : null 
+                guess: canSeeLetters ? cleanGuess : null
             });
         }
 
@@ -230,7 +230,7 @@ io.on('connection', (socket) => {
         const allFinished = Object.values(room.players).every(p => p.status !== 'playing');
         if (allFinished) {
             console.log(`[${roomCode}] Round over. Word was: ${room.secretWord}`);
-            room.gameStarted = false; 
+            room.gameStarted = false;
             io.to(roomCode).emit('match_over', { secretWord: room.secretWord, scores: room.scores });
         }
     });
@@ -256,21 +256,21 @@ io.on('connection', (socket) => {
     socket.on('disconnect', () => {
         const { roomCode, sessionId } = socketMap[socket.id] || {};
         delete socketMap[socket.id]; // Remove the mapping to prevent memory leaks
-        
+
         if (roomCode && rooms[roomCode]) {
-            console.log(`[${roomCode}] Session ${sessionId?.substring(0,4)} disconnected. Preserving state.`);
+            console.log(`[${roomCode}] Session ${sessionId?.substring(0, 4)} disconnected. Preserving state.`);
 
             rooms[roomCode].players[sessionId].connected = false;
             io.to(roomCode).emit('player_connection_updated', { sessionId, connected: false });
 
             rooms[roomCode].players[sessionId].disconnectTimer = setTimeout(() => {
                 if (room.players[sessionId]) {
-                    console.log(`[${roomCode}] Session ${sessionId?.substring(0,4)} timed out. Removing player.`);
-                    
+                    console.log(`[${roomCode}] Session ${sessionId?.substring(0, 4)} timed out. Removing player.`);
+
                     // Remove player data
                     delete room.players[sessionId];
                     delete room.scores[sessionId];
-                    
+
                     // Shrink the room limit
                     room.maxPlayers = Math.max(1, room.maxPlayers - 1);
 
@@ -282,10 +282,10 @@ io.on('connection', (socket) => {
                     }
 
                     // Tell the remaining players the new roster and max players limit
-                    io.to(roomCode).emit('room_updated', { 
-                        roomCode, 
-                        players: Object.keys(room.players).map(id => ({ 
-                            id, 
+                    io.to(roomCode).emit('room_updated', {
+                        roomCode,
+                        players: Object.keys(room.players).map(id => ({
+                            id,
                             name: room.players[id].name,
                             connected: room.players[id].connected
                         })),
@@ -297,7 +297,7 @@ io.on('connection', (socket) => {
                         // Did kicking the only active player just finish the round for everyone else?
                         const allFinished = Object.values(room.players).every(p => p.status !== 'playing');
                         if (allFinished) {
-                            room.gameStarted = false; 
+                            room.gameStarted = false;
                             io.to(roomCode).emit('match_over', { secretWord: room.secretWord, scores: room.scores });
                         }
                     } else {
@@ -305,10 +305,10 @@ io.on('connection', (socket) => {
                         if (Object.keys(room.players).length === room.maxPlayers && room.maxPlayers > 1) {
                             room.secretWord = getRandomSolution();
                             room.gameStarted = true;
-                            io.to(roomCode).emit('game_start', { 
-                                players: Object.keys(room.players).map(id => ({ 
-                                    id, name: room.players[id].name, connected: room.players[id].connected 
-                                })) 
+                            io.to(roomCode).emit('game_start', {
+                                players: Object.keys(room.players).map(id => ({
+                                    id, name: room.players[id].name, connected: room.players[id].connected
+                                }))
                             });
                         }
                     }
@@ -324,17 +324,17 @@ io.on('connection', (socket) => {
 
         const room = rooms[roomCode];
 
-        console.log(`[${roomCode}] Session ${sessionId?.substring(0,4)} voluntarily left.`);
-        
+        console.log(`[${roomCode}] Session ${sessionId?.substring(0, 4)} voluntarily left.`);
+
         // Remove their disconnect timer if they somehow triggered this while offline
         if (room.players[sessionId].disconnectTimer) {
             clearTimeout(room.players[sessionId].disconnectTimer);
         }
-        
+
         // Remove player data
         delete room.players[sessionId];
         delete room.scores[sessionId];
-        
+
         // Disconnect their socket from the Socket.IO room channel
         delete socketMap[socket.id];
         socket.leave(roomCode);
@@ -345,21 +345,21 @@ io.on('connection', (socket) => {
         }
 
         const remainingPlayers = Object.keys(room.players).length;
-        if (remainingPlayers <= 1) {
-            if (remainingPlayers === 1) {
-                // Boot the last remaining player back to the main menu safely
-                io.to(roomCode).emit('room_error', 'All opponents left. Room closed.');
-            }
-            delete rooms[roomCode];
-            console.log(`[${roomCode}] Not enough players. Room destroyed.`);
-            return;
+        if (remainingPlayers === 0 || (remainingPlayers === 1 && room.gameStarted)) {
+                if (remainingPlayers === 1) {
+                    // Boot the last remaining player back to the main menu safely
+                    io.to(roomCode).emit('room_error', 'All opponents left. Room closed.');
+                }
+                delete rooms[roomCode];
+                console.log(`[${roomCode}] Not enough players. Room destroyed.`);
+                return;
         }
 
         // Tell the remaining players the new roster and max players limit
-        io.to(roomCode).emit('room_updated', { 
-            roomCode, 
-            players: Object.keys(room.players).map(id => ({ 
-                id, 
+        io.to(roomCode).emit('room_updated', {
+            roomCode,
+            players: Object.keys(room.players).map(id => ({
+                id,
                 name: room.players[id].name,
                 connected: room.players[id].connected
             })),
@@ -371,7 +371,7 @@ io.on('connection', (socket) => {
             // Did the last active player leave, ending the round for everyone else?
             const allFinished = Object.values(room.players).every(p => p.status !== 'playing');
             if (allFinished) {
-                room.gameStarted = false; 
+                room.gameStarted = false;
                 io.to(roomCode).emit('match_over', { secretWord: room.secretWord, scores: room.scores });
             }
         } else {
@@ -379,10 +379,10 @@ io.on('connection', (socket) => {
             if (Object.keys(room.players).length === room.maxPlayers && room.maxPlayers > 1) {
                 room.secretWord = getRandomSolution();
                 room.gameStarted = true;
-                io.to(roomCode).emit('game_start', { 
-                    players: Object.keys(room.players).map(id => ({ 
-                        id, name: room.players[id].name, connected: room.players[id].connected 
-                    })) 
+                io.to(roomCode).emit('game_start', {
+                    players: Object.keys(room.players).map(id => ({
+                        id, name: room.players[id].name, connected: room.players[id].connected
+                    }))
                 });
             }
         }
